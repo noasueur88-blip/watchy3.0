@@ -7,3 +7,4 @@ requests
 discord.py
 python-dotenv
 eventlet
+gunicorn
