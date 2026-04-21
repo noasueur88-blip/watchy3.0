@@ -1,0 +1,193 @@
+import discord
+from discord.ext import commands, tasks
+import sqlite3
+import time
+import os
+from dotenv import load_dotenv
+
+# =========================
+# LOAD TOKEN
+# =========================
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+
+if not TOKEN:
+    raise ValueError("TOKEN manquant dans .env")
+
+# =========================
+# BOT SETUP
+# =========================
+intents = discord.Intents.default()
+intents.guilds = True
+intents.members = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# =========================
+# DB INIT
+# =========================
+conn = sqlite3.connect("codes.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS codes (
+    code TEXT PRIMARY KEY,
+    role_id INTEGER,
+    max_uses INTEGER,
+    uses INTEGER DEFAULT 0,
+    expires_at INTEGER,
+    bound_user INTEGER
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS roles (
+    role_id INTEGER PRIMARY KEY,
+    role_name TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS admins (
+    user_id INTEGER PRIMARY KEY
+)
+""")
+
+conn.commit()
+
+# =========================
+# ADMIN LOGIN SYSTEM
+# =========================
+def is_admin(user_id: int):
+    cursor.execute("SELECT user_id FROM admins WHERE user_id=?", (user_id,))
+    return cursor.fetchone() is not None
+
+
+# =========================
+# ROLE SYNC (SAFE)
+# =========================
+@tasks.loop(minutes=10)
+async def sync_roles():
+    for guild in bot.guilds:
+        for role in guild.roles:
+            cursor.execute(
+                "INSERT OR REPLACE INTO roles VALUES (?, ?)",
+                (role.id, role.name)
+            )
+    conn.commit()
+
+
+# =========================
+# VERIFY SYSTEM
+# =========================
+class VerifyModal(discord.ui.Modal, title="Vérification"):
+    code = discord.ui.TextInput(label="Code")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        user_code = self.code.value.upper().strip()
+        user_id = interaction.user.id
+
+        cursor.execute("""
+            SELECT role_id, max_uses, uses, expires_at, bound_user
+            FROM codes WHERE code=?
+        """, (user_code,))
+        data = cursor.fetchone()
+
+        if not data:
+            return await interaction.response.send_message("❌ Code invalide", ephemeral=True)
+
+        role_id, max_uses, uses, expires_at, bound_user = data
+
+        # expiration
+        if expires_at and time.time() > expires_at:
+            return await interaction.response.send_message("⏳ Code expiré", ephemeral=True)
+
+        # anti-leak (lié à un user)
+        if bound_user and bound_user != user_id:
+            return await interaction.response.send_message("❌ Code non autorisé", ephemeral=True)
+
+        # usage limit
+        if max_uses != -1 and uses >= max_uses:
+            return await interaction.response.send_message("❌ Code déjà utilisé", ephemeral=True)
+
+        # UPDATE USAGE
+        cursor.execute("UPDATE codes SET uses = uses + 1 WHERE code=?", (user_code,))
+        conn.commit()
+
+        # GIVE ROLE
+        role = interaction.guild.get_role(role_id)
+
+        if role:
+            try:
+                await interaction.user.add_roles(role)
+            except discord.Forbidden:
+                return await interaction.response.send_message(
+                    "❌ Permissions manquantes pour donner le rôle",
+                    ephemeral=True
+                )
+
+        await interaction.response.send_message("✅ Vérifié !", ephemeral=True)
+
+
+class VerifyView(discord.ui.View):
+    @discord.ui.button(label="Se vérifier", style=discord.ButtonStyle.green)
+    async def verify(self, interaction: discord.Interaction, button):
+        await interaction.response.send_modal(VerifyModal())
+
+
+# =========================
+# LOGIN COMMAND
+# =========================
+@bot.tree.command(name="login", description="Se connecter en admin")
+async def login(interaction: discord.Interaction):
+    user_id = interaction.user.id
+
+    cursor.execute("INSERT OR IGNORE INTO admins VALUES (?)", (user_id,))
+    conn.commit()
+
+    await interaction.response.send_message("🔐 Login admin validé", ephemeral=True)
+
+
+# =========================
+# PANEL COMMAND
+# =========================
+@bot.tree.command(name="panel", description="Panel vérification")
+async def panel(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "Clique pour te vérifier 👇",
+        view=VerifyView(),
+        ephemeral=True
+    )
+
+
+# =========================
+# ADMIN COMMAND EXAMPLE
+# =========================
+@bot.tree.command(name="admin_check", description="Tester si admin")
+async def admin_check(interaction: discord.Interaction):
+    if not is_admin(interaction.user.id):
+        return await interaction.response.send_message("❌ Pas admin", ephemeral=True)
+
+    await interaction.response.send_message("✅ Admin OK", ephemeral=True)
+
+
+# =========================
+# READY EVENT
+# =========================
+@bot.event
+async def on_ready():
+    try:
+        await bot.tree.sync()
+        print("Slash commands sync OK")
+    except Exception as e:
+        print("Sync error:", e)
+
+    sync_roles.start()
+
+    print(f"Bot prêt : {bot.user}")
+
+
+# =========================
+# RUN
+# =========================
+bot.run(TOKEN)
