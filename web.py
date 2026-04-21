@@ -6,7 +6,7 @@ import os
 import requests
 
 # =========================
-# APP INIT (FIX IMPORTANT)
+# APP INIT
 # =========================
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
@@ -15,107 +15,14 @@ app.secret_key = "supersecretkey"
 # DISCORD OAUTH
 # =========================
 CLIENT_ID = "1495598588406005911"
-CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"  # ⚠️ ne jamais leak en public
+CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"
 REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
 DISCORD_API = "https://discord.com/api"
 
-# =========================
-# ADMIN SYSTEM
-# =========================
-ADMIN_IDS = [1018561026427474121]  # tu peux ajouter tes IDs Discord ici
+ADMIN_IDS = [1018561026427474121]
 
-# =========================
-# PASSWORD FALLBACK (optionnel)
-# =========================
 PASSWORD = "Avost241088?"
-# ================= LOGIN =================
-@app.route("/login")
-def login():
-    return redirect(
-        f"https://discord.com/oauth2/authorize"
-        f"?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-        f"&response_type=code&scope=identify%20guilds"
-    )
 
-# ================= CALLBACK =================
-@app.route("/callback")
-def callback():
-    code = request.args.get("code")
-
-    data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": REDIRECT_URI,
-        "scope": "identify guilds"
-    }
-
-    r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers={
-        "Content-Type": "application/x-www-form-urlencoded"
-    })
-
-    token = r.json()["access_token"]
-
-    user = requests.get(
-        DISCORD_API + "/users/@me",
-        headers={"Authorization": f"Bearer {token}"}
-    ).json()
-
-    guilds = requests.get(
-        DISCORD_API + "/users/@me/guilds",
-        headers={"Authorization": f"Bearer {token}"}
-    ).json()
-
-    session["user"] = user
-    session["guilds"] = guilds
-
-    return redirect("/dashboard")
-
-# ================= DASHBOARD =================
-@app.route("/dashboard")
-def dashboard():
-    if "user" not in session:
-        return redirect("/login")
-
-    bot_guilds = []  # sync depuis bot via socket ou API
-
-    return render_template(
-        "dashboard.html",
-        user=session["user"],
-        guilds=session["guilds"]
-    )
-
-# ================= CREATE CODE =================
-@app.route("/create_code", methods=["POST"])
-def create_code():
-    data = request.json
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("""
-        INSERT INTO codes VALUES (?, ?, ?, NULL, ?, 0, ?, ?)
-    """, (
-        data["code"],
-        data["guild_id"],
-        data["role_id"],
-        data["max_uses"],
-        data["premium"],
-        data["expires_at"]
-    ))
-
-    conn.commit()
-    conn.close()
-
-    socketio.emit("update", {"type": "codes"})
-
-    return {"status": "ok"}
-
-# ================= SOCKET =================
-@socketio.on("connect")
-def connect():
-    print("dashboard connected")
 # =========================
 # DB INIT
 # =========================
@@ -156,10 +63,10 @@ def db():
     return sqlite3.connect("codes.db")
 
 # =========================
-# DISCORD LOGIN ROUTES
+# LOGIN DISCORD
 # =========================
-@app.route("/login/discord")
-def login_discord():
+@app.route("/login")
+def login():
     return redirect(
         f"https://discord.com/oauth2/authorize"
         f"?client_id={CLIENT_ID}"
@@ -168,10 +75,15 @@ def login_discord():
         f"&scope=identify"
     )
 
-
+# =========================
+# CALLBACK (FIXED SAFE)
+# =========================
 @app.route("/callback")
 def callback():
     code = request.args.get("code")
+
+    if not code:
+        return "❌ No code provided"
 
     data = {
         "client_id": CLIENT_ID,
@@ -186,19 +98,32 @@ def callback():
         "Content-Type": "application/x-www-form-urlencoded"
     }
 
-    r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers=headers)
-    token = r.json().get("access_token")
+    token_res = requests.post(
+        DISCORD_API + "/oauth2/token",
+        data=data,
+        headers=headers
+    ).json()
 
-    user = requests.get(
+    if "access_token" not in token_res:
+        return f"❌ OAuth error: {token_res}"
+
+    token = token_res["access_token"]
+
+    user_res = requests.get(
         DISCORD_API + "/users/@me",
         headers={"Authorization": f"Bearer {token}"}
     ).json()
 
-    session["user_id"] = user["id"]
+    if "id" not in user_res:
+        return f"❌ User fetch error: {user_res}"
+
+    user_id = int(user_res["id"])
 
     # ADMIN CHECK
-    if int(user["id"]) not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         return "❌ Pas admin"
+
+    session["user_id"] = user_id
 
     return redirect("/")
 
@@ -208,9 +133,8 @@ def callback():
 @app.route("/", methods=["GET", "POST"])
 def index():
 
-    # 🔐 LOGIN CHECK
     if "user_id" not in session:
-        return redirect("/login/discord")
+        return redirect("/login")
 
     conn = db()
     cursor = conn.cursor()
@@ -220,9 +144,7 @@ def index():
     # =========================
     if request.method == "POST":
 
-        password = request.form.get("password")
-
-        if password != PASSWORD:
+        if request.form.get("password") != PASSWORD:
             return "❌ Mot de passe incorrect"
 
         try:
@@ -230,16 +152,8 @@ def index():
         except:
             return "❌ rôle invalide"
 
-        try:
-            days = int(request.form.get("days") or 0)
-        except:
-            days = 0
-
-        try:
-            max_uses = int(request.form.get("max_uses") or 1)
-        except:
-            max_uses = 1
-
+        days = int(request.form.get("days") or 0)
+        max_uses = int(request.form.get("max_uses") or 1)
         user_id = request.form.get("user")
 
         code = generate_code()
