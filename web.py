@@ -75,9 +75,6 @@ def login():
         f"&scope=identify"
     )
 
-# =========================
-# CALLBACK (FIXED SAFE)
-# =========================
 @app.route("/callback")
 def callback():
     code = request.args.get("code")
@@ -91,42 +88,38 @@ def callback():
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": REDIRECT_URI,
-        "scope": "identify"
     }
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded"
     }
 
-    token_res = requests.post(
-        DISCORD_API + "/oauth2/token",
-        data=data,
-        headers=headers
-    ).json()
+    # 🔁 GET TOKEN
+    r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers=headers)
+    token_json = r.json()
 
-    if "access_token" not in token_res:
-        return f"❌ OAuth error: {token_res}"
+    access_token = token_json.get("access_token")
 
-    token = token_res["access_token"]
+    if not access_token:
+        return f"❌ Token error: {token_json}"
 
-    user_res = requests.get(
+    # 🔁 GET USER
+    user = requests.get(
         DISCORD_API + "/users/@me",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {access_token}"}
     ).json()
 
-    if "id" not in user_res:
-        return f"❌ User fetch error: {user_res}"
+    # 🔐 SAFETY CHECK
+    if "id" not in user:
+        return f"❌ Discord API error: {user}"
 
-    user_id = int(user_res["id"])
+    session["user_id"] = user["id"]
 
     # ADMIN CHECK
-    if user_id not in ADMIN_IDS:
+    if int(user["id"]) not in ADMIN_IDS:
         return "❌ Pas admin"
 
-    session["user_id"] = user_id
-
-    return redirect("/")
-
+    return redirect("/dashboard")
 # =========================
 # DASHBOARD
 # =========================
