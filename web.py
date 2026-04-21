@@ -4,6 +4,14 @@ import secrets
 import time
 import os
 
+CLIENT_ID = "1495598588406005911"
+CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"
+REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
+
+DISCORD_API = "https://discord.com/api"
+
+app.secret_key = "supersecretkey"
+
 app = Flask(__name__)
 
 PASSWORD = "admin123"  # change ça
