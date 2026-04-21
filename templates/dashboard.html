@@ -91,7 +91,6 @@ th {
     background: #222;
 }
 
-/* SMALL TEXT */
 small {
     color: #aaa;
 }
@@ -145,6 +144,9 @@ small {
 <label>Max utilisations :</label>
 <input type="number" name="max_uses" value="1">
 
+<label>Password admin :</label>
+<input type="password" name="password" placeholder="admin password">
+
 <button type="submit">Créer le code</button>
 
 </form>
@@ -161,13 +163,33 @@ small {
 <table>
 <tr>
     <th>Code</th>
+    <th>Utilisation</th>
+    <th>Max</th>
     <th>Statut</th>
+    <th>Expiration</th>
 </tr>
 
 {% for c in codes %}
 <tr>
     <td>{{ c[0] }}</td>
-    <td>{{ "UTILISÉ" if c[3] > 0 else "DISPONIBLE" }}</td>
+    <td>{{ c[3] }}</td>
+    <td>{{ c[2] }}</td>
+
+    <td>
+        {% if c[3] >= c[2] and c[2] != -1 %}
+            ❌ Utilisé
+        {% else %}
+            ✅ Actif
+        {% endif %}
+    </td>
+
+    <td>
+        {% if c[4] %}
+            {{ c[4] }}
+        {% else %}
+            ∞
+        {% endif %}
+    </td>
 </tr>
 {% endfor %}
 
