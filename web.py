@@ -48,7 +48,7 @@ def db():
     return sqlite3.connect("codes.db")
 
 # =========================
-# ROUTE DASHBOARD
+# DASHBOARD
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -61,21 +61,40 @@ def index():
     # =========================
     if request.method == "POST":
 
-        if request.form.get("password") != PASSWORD:
+        password = request.form.get("password")
+
+        if password != PASSWORD:
             return "❌ Mot de passe incorrect"
 
-        role_id = int(request.form.get("role"))
-        days = int(request.form.get("days") or 0)
-        max_uses = int(request.form.get("max_uses") or 1)
+        try:
+            role_id = int(request.form.get("role"))
+        except:
+            return "❌ rôle invalide"
+
+        try:
+            days = int(request.form.get("days") or 0)
+        except:
+            days = 0
+
+        try:
+            max_uses = int(request.form.get("max_uses") or 1)
+        except:
+            max_uses = 1
+
         user_id = request.form.get("user")
 
         code = generate_code()
 
-        # expiration
+        # =========================
+        # EXPIRATION
+        # =========================
         expires_at = None
         if days > 0:
             expires_at = int(time.time()) + (days * 86400)
 
+        # =========================
+        # INSERT SAFE
+        # =========================
         cursor.execute("""
         INSERT INTO codes
         (code, role_id, max_uses, uses, expires_at, bound_user)
@@ -85,30 +104,35 @@ def index():
             role_id,
             max_uses,
             expires_at,
-            user_id if user_id else None
+            int(user_id) if user_id else None
         ))
 
         conn.commit()
 
     # =========================
-    # STATS
+    # STATS SAFE
     # =========================
     cursor.execute("SELECT COUNT(*) FROM codes")
-    total_codes = cursor.fetchone()[0]
+    total_codes = cursor.fetchone()[0] or 0
 
     cursor.execute("SELECT SUM(uses) FROM codes")
     total_uses = cursor.fetchone()[0] or 0
 
     # =========================
-    # LOAD ROLES
+    # ROLES
     # =========================
     cursor.execute("SELECT role_id, role_name FROM roles")
     roles = cursor.fetchall()
 
     # =========================
-    # LOAD CODES (for table)
+    # CODES LIST
     # =========================
-    cursor.execute("SELECT code, role_id, max_uses, uses FROM codes ORDER BY ROWID DESC LIMIT 20")
+    cursor.execute("""
+        SELECT code, role_id, max_uses, uses, expires_at
+        FROM codes
+        ORDER BY ROWID DESC
+        LIMIT 20
+    """)
     codes = cursor.fetchall()
 
     conn.close()
@@ -122,7 +146,7 @@ def index():
     )
 
 # =========================
-# RUN (Render FIX)
+# RUN (RENDER READY)
 # =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
