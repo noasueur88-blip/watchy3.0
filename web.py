@@ -1,20 +1,33 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, session
 import sqlite3
 import secrets
 import time
 import os
+import requests
 
-CLIENT_ID = "1495598588406005911"
-CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"
-REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
-
-DISCORD_API = "https://discord.com/api"
-
+# =========================
+# APP INIT (FIX IMPORTANT)
+# =========================
+app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
-app = Flask(__name__)
+# =========================
+# DISCORD OAUTH
+# =========================
+CLIENT_ID = "1495598588406005911"
+CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"  # ⚠️ ne jamais leak en public
+REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
+DISCORD_API = "https://discord.com/api"
 
-PASSWORD = "admin123"  # change ça
+# =========================
+# ADMIN SYSTEM
+# =========================
+ADMIN_IDS = []  # tu peux ajouter tes IDs Discord ici
+
+# =========================
+# PASSWORD FALLBACK (optionnel)
+# =========================
+PASSWORD = "admin123"
 
 # =========================
 # DB INIT
@@ -56,10 +69,61 @@ def db():
     return sqlite3.connect("codes.db")
 
 # =========================
+# DISCORD LOGIN ROUTES
+# =========================
+@app.route("/login/discord")
+def login_discord():
+    return redirect(
+        f"https://discord.com/oauth2/authorize"
+        f"?client_id={CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=identify"
+    )
+
+
+@app.route("/callback")
+def callback():
+    code = request.args.get("code")
+
+    data = {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "scope": "identify"
+    }
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers=headers)
+    token = r.json().get("access_token")
+
+    user = requests.get(
+        DISCORD_API + "/users/@me",
+        headers={"Authorization": f"Bearer {token}"}
+    ).json()
+
+    session["user_id"] = user["id"]
+
+    # ADMIN CHECK
+    if int(user["id"]) not in ADMIN_IDS:
+        return "❌ Pas admin"
+
+    return redirect("/")
+
+# =========================
 # DASHBOARD
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
+
+    # 🔐 LOGIN CHECK
+    if "user_id" not in session:
+        return redirect("/login/discord")
 
     conn = db()
     cursor = conn.cursor()
@@ -93,16 +157,10 @@ def index():
 
         code = generate_code()
 
-        # =========================
-        # EXPIRATION
-        # =========================
         expires_at = None
         if days > 0:
             expires_at = int(time.time()) + (days * 86400)
 
-        # =========================
-        # INSERT SAFE
-        # =========================
         cursor.execute("""
         INSERT INTO codes
         (code, role_id, max_uses, uses, expires_at, bound_user)
@@ -118,7 +176,7 @@ def index():
         conn.commit()
 
     # =========================
-    # STATS SAFE
+    # STATS
     # =========================
     cursor.execute("SELECT COUNT(*) FROM codes")
     total_codes = cursor.fetchone()[0] or 0
@@ -154,7 +212,7 @@ def index():
     )
 
 # =========================
-# RUN (RENDER READY)
+# RUN
 # =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
