@@ -67,6 +67,9 @@ class View(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f"Bot ready {bot.user}")
+    @bot.event
+    global bot_guild_ids
+    bot_guild_ids = [g.id for g in bot.guilds]
 
 @bot.tree.command(name="panel")
 async def panel(interaction: discord.Interaction):
