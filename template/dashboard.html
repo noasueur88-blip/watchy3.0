@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Admin</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0f0f0f;
+    color: white;
+}
+
+/* HEADER */
+header {
+    background: #1a1a1a;
+    padding: 15px 20px;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* CONTAINER */
+.container {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+}
+
+/* CARD */
+.card {
+    background: #1a1a1a;
+    padding: 20px;
+    border-radius: 12px;
+    flex: 1;
+    box-shadow: 0 0 15px rgba(0,0,0,0.5);
+}
+
+/* STATS */
+.stats {
+    display: flex;
+    gap: 10px;
+}
+
+.stat {
+    flex: 1;
+    background: #222;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+/* FORM */
+input, select {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    margin-bottom: 15px;
+    border: none;
+    border-radius: 6px;
+    background: #222;
+    color: white;
+}
+
+button {
+    width: 100%;
+    padding: 10px;
+    background: #4CAF50;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #45a049;
+}
+
+/* TABLE */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 10px;
+    border-bottom: 1px solid #333;
+}
+
+th {
+    background: #222;
+}
+
+/* SMALL TEXT */
+small {
+    color: #aaa;
+}
+</style>
+
+</head>
+
+<body>
+
+<header>
+🔐 Admin Dashboard
+</header>
+
+<div class="container">
+
+<!-- STATS -->
+<div class="card">
+    <h3>📊 Statistiques</h3>
+
+    <div class="stats">
+        <div class="stat">
+            <h2>{{ total_codes }}</h2>
+            <small>Codes</small>
+        </div>
+
+        <div class="stat">
+            <h2>{{ total_uses }}</h2>
+            <small>Utilisations</small>
+        </div>
+    </div>
+
+</div>
+
+<!-- CREATE CODE -->
+<div class="card">
+
+<h3>➕ Créer un code</h3>
+
+<form method="POST">
+
+<label>Rôle :</label>
+<select name="role">
+    {% for r in roles %}
+    <option value="{{ r[0] }}">{{ r[1] }}</option>
+    {% endfor %}
+</select>
+
+<label>Durée (jours) :</label>
+<input type="number" name="days" value="0">
+
+<label>Max utilisations :</label>
+<input type="number" name="max_uses" value="1">
+
+<button type="submit">Créer le code</button>
+
+</form>
+
+</div>
+
+</div>
+
+<!-- CODES LIST -->
+<div class="card" style="margin:20px;">
+
+<h3>📦 Codes récents</h3>
+
+<table>
+<tr>
+    <th>Code</th>
+    <th>Statut</th>
+</tr>
+
+{% for c in codes %}
+<tr>
+    <td>{{ c[0] }}</td>
+    <td>{{ "UTILISÉ" if c[3] > 0 else "DISPONIBLE" }}</td>
+</tr>
+{% endfor %}
+
+</table>
+
+</div>
+
+</body>
+</html>
