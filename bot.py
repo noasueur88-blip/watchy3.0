@@ -1,179 +1,75 @@
 import discord
-from discord.ext import commands, tasks
-import sqlite3
+from discord.ext import commands
+from db import get_db
 import time
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
-intents.guilds = True
 intents.members = True
+intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# =========================
-# DB INIT
-# =========================
-conn = sqlite3.connect("codes.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS codes (
-    code TEXT PRIMARY KEY,
-    role_id INTEGER,
-    max_uses INTEGER,
-    uses INTEGER DEFAULT 0,
-    expires_at INTEGER,
-    bound_user INTEGER
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS roles (
-    role_id INTEGER PRIMARY KEY,
-    role_name TEXT
-)
-""")
-
-conn.commit()
-
-# =========================
-# SYNC ROLES
-# =========================
-@tasks.loop(minutes=5)
-async def sync_roles():
-    for guild in bot.guilds:
-        for role in guild.roles:
-            cursor.execute(
-                "INSERT OR REPLACE INTO roles VALUES (?, ?)",
-                (role.id, role.name)
-            )
-    conn.commit()
-
-# =========================
-# VERIFY SYSTEM
-# =========================
-class VerifyModal(discord.ui.Modal, title="Vérification"):
-
+# ================= VERIFY =================
+class Verify(discord.ui.Modal, title="Code"):
     code = discord.ui.TextInput(label="Code")
 
     async def on_submit(self, interaction: discord.Interaction):
 
-        user_code = self.code.value.upper().strip()
-        user_id = interaction.user.id
+        conn = get_db()
+        c = conn.cursor()
 
-        cursor.execute("""
-            SELECT role_id, max_uses, uses, expires_at, bound_user
-            FROM codes
-            WHERE code=?
-        """, (user_code,))
-
-        data = cursor.fetchone()
+        c.execute("SELECT * FROM codes WHERE code=?", (self.code.value,))
+        data = c.fetchone()
 
         if not data:
-            return await interaction.response.send_message(
-                "❌ Code invalide",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ invalide", ephemeral=True)
 
-        role_id, max_uses, uses, expires_at, bound_user = data
+        code, guild_id, role_id, used_by, max_uses, uses, premium, expires_at = data
 
-        # =========================
-        # EXPIRATION CHECK
-        # =========================
-        if expires_at is not None and time.time() > expires_at:
-            return await interaction.response.send_message(
-                "⏳ Code expiré",
-                ephemeral=True
-            )
+        if expires_at and time.time() > expires_at:
+            return await interaction.response.send_message("⏳ expiré", ephemeral=True)
 
-        # =========================
-        # ANTI LEAK (USER LOCK)
-        # =========================
-        if bound_user is not None and bound_user != user_id:
-            return await interaction.response.send_message(
-                "❌ Code non autorisé pour ton compte",
-                ephemeral=True
-            )
-
-        # =========================
-        # USAGE LIMIT
-        # =========================
         if max_uses != -1 and uses >= max_uses:
-            return await interaction.response.send_message(
-                "❌ Code déjà utilisé",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ utilisé", ephemeral=True)
 
-        # =========================
-        # UPDATE USAGE
-        # =========================
-        cursor.execute(
-            "UPDATE codes SET uses = uses + 1 WHERE code=?",
-            (user_code,)
-        )
+        # mark used
+        c.execute("UPDATE codes SET uses = uses + 1, used_by=? WHERE code=?",
+                  (interaction.user.id, self.code.value))
+
         conn.commit()
 
-        # =========================
-        # ROLE GIVE
-        # =========================
-        role = interaction.guild.get_role(role_id)
+        role = interaction.guild.get_role(int(role_id))
 
         if role:
-            try:
-                await interaction.user.add_roles(role)
-            except discord.Forbidden:
-                return await interaction.response.send_message(
-                    "❌ Permission manquante (Manage Roles)",
-                    ephemeral=True
-                )
+            await interaction.user.add_roles(role)
 
-        await interaction.response.send_message(
-            "✅ Vérifié avec succès !",
-            ephemeral=True
-        )
+        await interaction.response.send_message("✅ OK", ephemeral=True)
 
-# =========================
-# VIEW BUTTON
-# =========================
-class VerifyView(discord.ui.View):
+        # LOGS
+        channel = discord.utils.get(interaction.guild.text_channels, name="logs")
+        if channel:
+            embed = discord.Embed(
+                title="Code utilisé",
+                description=f"{interaction.user} a utilisé {self.code.value}",
+                color=0x00ff00
+            )
+            await channel.send(embed=embed)
 
-    def __init__(self):
-        super().__init__(timeout=None)
+# ================= VIEW =================
+class View(discord.ui.View):
+    @discord.ui.button(label="Verify", style=discord.ButtonStyle.green)
+    async def v(self, interaction, button):
+        await interaction.response.send_modal(Verify())
 
-    @discord.ui.button(
-        label="Se vérifier",
-        style=discord.ButtonStyle.green
-    )
-    async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(VerifyModal())
-
-# =========================
-# SLASH COMMAND
-# =========================
-@bot.tree.command(
-    name="panel",
-    description="Ouvre le panel de vérification"
-)
-async def panel(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Clique pour te vérifier 👇",
-        view=VerifyView()
-    )
-
-# =========================
-# READY EVENT
-# =========================
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    sync_roles.start()
-    print(f"Bot prêt : {bot.user}")
+    print(f"Bot ready {bot.user}")
 
-# =========================
-# RUN
-# =========================
+@bot.tree.command(name="panel")
+async def panel(interaction: discord.Interaction):
+    await interaction.response.send_message("verify", view=View())
+
 bot.run(TOKEN)
