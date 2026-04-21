@@ -9,7 +9,7 @@ app = Flask(__name__)
 PASSWORD = "admin123"  # change ça
 
 # =========================
-# DB INIT (IMPORTANT FIX)
+# DB INIT
 # =========================
 def init_db():
     conn = sqlite3.connect("codes.db")
@@ -48,7 +48,7 @@ def db():
     return sqlite3.connect("codes.db")
 
 # =========================
-# ROUTE
+# ROUTE DASHBOARD
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -56,48 +56,48 @@ def index():
     conn = db()
     cursor = conn.cursor()
 
+    # =========================
+    # CREATE CODE
+    # =========================
     if request.method == "POST":
 
         if request.form.get("password") != PASSWORD:
             return "❌ Mot de passe incorrect"
 
         role_id = int(request.form.get("role"))
-        days = int(request.form.get("days"))
-        code_type = request.form.get("type")
+        days = int(request.form.get("days") or 0)
+        max_uses = int(request.form.get("max_uses") or 1)
         user_id = request.form.get("user")
 
         code = generate_code()
 
-        # =========================
-        # TYPE CODE
-        # =========================
-        if code_type == "unique":
-            max_uses = 1
-        else:
-            max_uses = -1  # VIP / lifetime
-
-        # =========================
-        # EXPIRATION
-        # =========================
+        # expiration
         expires_at = None
         if days > 0:
             expires_at = int(time.time()) + (days * 86400)
 
-        cursor.execute(
-            "INSERT INTO codes VALUES (?, ?, ?, 0, ?, ?)",
-            (
-                code,
-                role_id,
-                max_uses,
-                expires_at,
-                user_id if user_id else None
-            )
-        )
+        cursor.execute("""
+        INSERT INTO codes
+        (code, role_id, max_uses, uses, expires_at, bound_user)
+        VALUES (?, ?, ?, 0, ?, ?)
+        """, (
+            code,
+            role_id,
+            max_uses,
+            expires_at,
+            user_id if user_id else None
+        ))
 
         conn.commit()
-        conn.close()
 
-        return f"✅ Code créé : {code}"
+    # =========================
+    # STATS
+    # =========================
+    cursor.execute("SELECT COUNT(*) FROM codes")
+    total_codes = cursor.fetchone()[0]
+
+    cursor.execute("SELECT SUM(uses) FROM codes")
+    total_uses = cursor.fetchone()[0] or 0
 
     # =========================
     # LOAD ROLES
@@ -105,9 +105,21 @@ def index():
     cursor.execute("SELECT role_id, role_name FROM roles")
     roles = cursor.fetchall()
 
+    # =========================
+    # LOAD CODES (for table)
+    # =========================
+    cursor.execute("SELECT code, role_id, max_uses, uses FROM codes ORDER BY ROWID DESC LIMIT 20")
+    codes = cursor.fetchall()
+
     conn.close()
 
-    return render_template("index.html", roles=roles)
+    return render_template(
+        "dashboard.html",
+        roles=roles,
+        total_codes=total_codes,
+        total_uses=total_uses,
+        codes=codes
+    )
 
 # =========================
 # RUN (Render FIX)
