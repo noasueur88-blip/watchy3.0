@@ -123,7 +123,7 @@ def index():
 
     conn = db()
     cursor = conn.cursor()
-
+    bot_guild_ids = [1490636015147417741]
     # =========================
     # CREATE CODE
     # =========================
