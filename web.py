@@ -28,7 +28,94 @@ ADMIN_IDS = [1018561026427474121]  # tu peux ajouter tes IDs Discord ici
 # PASSWORD FALLBACK (optionnel)
 # =========================
 PASSWORD = "Avost241088?"
+# ================= LOGIN =================
+@app.route("/login")
+def login():
+    return redirect(
+        f"https://discord.com/oauth2/authorize"
+        f"?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
+        f"&response_type=code&scope=identify%20guilds"
+    )
 
+# ================= CALLBACK =================
+@app.route("/callback")
+def callback():
+    code = request.args.get("code")
+
+    data = {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "scope": "identify guilds"
+    }
+
+    r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers={
+        "Content-Type": "application/x-www-form-urlencoded"
+    })
+
+    token = r.json()["access_token"]
+
+    user = requests.get(
+        DISCORD_API + "/users/@me",
+        headers={"Authorization": f"Bearer {token}"}
+    ).json()
+
+    guilds = requests.get(
+        DISCORD_API + "/users/@me/guilds",
+        headers={"Authorization": f"Bearer {token}"}
+    ).json()
+
+    session["user"] = user
+    session["guilds"] = guilds
+
+    return redirect("/dashboard")
+
+# ================= DASHBOARD =================
+@app.route("/dashboard")
+def dashboard():
+    if "user" not in session:
+        return redirect("/login")
+
+    bot_guilds = []  # sync depuis bot via socket ou API
+
+    return render_template(
+        "dashboard.html",
+        user=session["user"],
+        guilds=session["guilds"]
+    )
+
+# ================= CREATE CODE =================
+@app.route("/create_code", methods=["POST"])
+def create_code():
+    data = request.json
+
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        INSERT INTO codes VALUES (?, ?, ?, NULL, ?, 0, ?, ?)
+    """, (
+        data["code"],
+        data["guild_id"],
+        data["role_id"],
+        data["max_uses"],
+        data["premium"],
+        data["expires_at"]
+    ))
+
+    conn.commit()
+    conn.close()
+
+    socketio.emit("update", {"type": "codes"})
+
+    return {"status": "ok"}
+
+# ================= SOCKET =================
+@socketio.on("connect")
+def connect():
+    print("dashboard connected")
 # =========================
 # DB INIT
 # =========================
