@@ -1,7 +1,9 @@
 discord.py==2.3.2
 python-dotenv==1.1.1
 flask
+flask-login
+flask-socketio
 requests
-gunicorn
+discord.py
 python-dotenv
-aiohttp
+eventlet
