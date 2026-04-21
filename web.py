@@ -22,12 +22,12 @@ DISCORD_API = "https://discord.com/api"
 # =========================
 # ADMIN SYSTEM
 # =========================
-ADMIN_IDS = []  # tu peux ajouter tes IDs Discord ici
+ADMIN_IDS = [1018561026427474121]  # tu peux ajouter tes IDs Discord ici
 
 # =========================
 # PASSWORD FALLBACK (optionnel)
 # =========================
-PASSWORD = "admin123"
+PASSWORD = "Avost241088?"
 
 # =========================
 # DB INIT
