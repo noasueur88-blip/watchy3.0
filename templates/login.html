@@ -33,47 +33,24 @@ h2 {
     color: #ffffff;
 }
 
-/* Input */
-input {
+/* Discord button */
+.discord-btn {
     width: 100%;
     padding: 12px;
-    margin: 10px 0;
-    border: none;
-    border-radius: 8px;
-    background: #2a2a2a;
-    color: white;
-    outline: none;
-    transition: 0.2s;
-}
-
-input:focus {
-    background: #333;
-    box-shadow: 0 0 10px rgba(76, 175, 80, 0.4);
-}
-
-/* Button */
-button {
-    width: 100%;
-    padding: 12px;
-    background: #4CAF50;
+    background: #5865F2;
     border: none;
     border-radius: 8px;
     color: white;
     cursor: pointer;
     transition: 0.2s;
     font-weight: bold;
+    text-decoration: none;
+    display: inline-block;
 }
 
-button:hover {
-    background: #45a049;
+.discord-btn:hover {
+    background: #4752C4;
     transform: scale(1.02);
-}
-
-/* message */
-.msg {
-    margin-top: 10px;
-    font-size: 13px;
-    color: #ff4d4d;
 }
 
 /* footer text */
@@ -92,17 +69,12 @@ p {
 
     <h2>🔐 Admin Login</h2>
 
-    <form method="POST">
-        <input type="password" name="password" placeholder="Mot de passe admin" required autofocus>
-        <button type="submit">Se connecter</button>
-    </form>
+    <!-- DISCORD OAUTH LOGIN -->
+    <a href="/login/discord" class="discord-btn">
+        Se connecter avec Discord
+    </a>
 
-    <!-- ERROR MESSAGE FLASK -->
-    {% if error %}
-        <div class="msg">{{ error }}</div>
-    {% endif %}
-
-    <p>Accès sécurisé administrateur</p>
+    <p>Accès réservé aux administrateurs</p>
 
 </div>
 
