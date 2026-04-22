@@ -1,30 +1,30 @@
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, jsonify
 import sqlite3
 import secrets
 import time
 import os
 import requests
 
-# =========================
-# APP INIT
-# =========================
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
 # =========================
-# DISCORD OAUTH
+# DISCORD CONFIG
 # =========================
 CLIENT_ID = "1495598588406005911"
-CLIENT_SECRET = "lVpvT0iMAap-ZVUOhObChvs-CNywnIvb"
+CLIENT_SECRET = "TON_CLIENT_SECRET"
 REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
 DISCORD_API = "https://discord.com/api"
 
+BOT_TOKEN = os.getenv("TOKEN")  # token bot
+
 ADMIN_IDS = [1018561026427474121]
 
-PASSWORD = "Avost241088?"
+# ⚠️ remplace par les vrais serveurs où ton bot est
+BOT_GUILDS = []
 
 # =========================
-# DB INIT
+# DB
 # =========================
 def init_db():
     conn = sqlite3.connect("codes.db")
@@ -33,6 +33,7 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS codes (
         code TEXT PRIMARY KEY,
+        guild_id INTEGER,
         role_id INTEGER,
         max_uses INTEGER,
         uses INTEGER DEFAULT 0,
@@ -41,26 +42,16 @@ def init_db():
     )
     """)
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS roles (
-        role_id INTEGER PRIMARY KEY,
-        role_name TEXT
-    )
-    """)
-
     conn.commit()
     conn.close()
 
 init_db()
 
-# =========================
-# UTILS
-# =========================
-def generate_code():
-    return secrets.token_hex(4).upper()
-
 def db():
     return sqlite3.connect("codes.db")
+
+def generate_code():
+    return secrets.token_hex(4).upper()
 
 # =========================
 # LOGIN DISCORD
@@ -72,21 +63,31 @@ def login():
         f"?client_id={CLIENT_ID}"
         f"&redirect_uri={REDIRECT_URI}"
         f"&response_type=code"
-        f"&scope=identify"
+        f"&scope=identify%20guilds"
     )
 
+# =========================
+# CALLBACK
+# =========================
 @app.route("/callback")
 def callback():
     code = request.args.get("code")
 
     if not code:
-        return "❌ No code provided"
+        return "❌ No code"
+
+    data = {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+    }
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded"
     }
 
-    # 🔁 GET TOKEN
     r = requests.post(DISCORD_API + "/oauth2/token", data=data, headers=headers)
     token_json = r.json()
 
@@ -95,48 +96,56 @@ def callback():
     if not access_token:
         return f"❌ Token error: {token_json}"
 
-    # 🔁 GET USER
+    # USER
     user = requests.get(
         DISCORD_API + "/users/@me",
         headers={"Authorization": f"Bearer {access_token}"}
     ).json()
 
-    # 🔐 SAFETY CHECK
     if "id" not in user:
-        return f"❌ Discord API error: {user}"
+        return f"❌ User error: {user}"
 
-    session["user_id"] = user["id"]
+    # GUILDS
+    guilds = requests.get(
+        DISCORD_API + "/users/@me/guilds",
+        headers={"Authorization": f"Bearer {access_token}"}
+    ).json()
 
-    # ADMIN CHECK
+    session["user"] = user
+    session["guilds"] = guilds
+
     if int(user["id"]) not in ADMIN_IDS:
         return "❌ Pas admin"
 
     return redirect("/dashboard")
+
 # =========================
 # DASHBOARD
 # =========================
-@app.route("/", methods=["GET", "POST"])
-def index():
+@app.route("/dashboard", methods=["GET", "POST"])
+def dashboard():
 
-    if "user_id" not in session:
+    if "user" not in session:
         return redirect("/login")
 
     conn = db()
     cursor = conn.cursor()
-    bot_guild_ids = [1490636015147417741]
+
+    user_guilds = session.get("guilds", [])
+
+    # 🔥 filtrer serveurs où bot est présent + admin
+    filtered_guilds = [
+        g for g in user_guilds
+        if int(g["permissions"]) & 0x20  # admin
+    ]
+
     # =========================
     # CREATE CODE
     # =========================
     if request.method == "POST":
 
-        if request.form.get("password") != PASSWORD:
-            return "❌ Mot de passe incorrect"
-
-        try:
-            role_id = int(request.form.get("role"))
-        except:
-            return "❌ rôle invalide"
-
+        guild_id = int(request.form.get("guild"))
+        role_id = int(request.form.get("role"))
         days = int(request.form.get("days") or 0)
         max_uses = int(request.form.get("max_uses") or 1)
         user_id = request.form.get("user")
@@ -149,10 +158,11 @@ def index():
 
         cursor.execute("""
         INSERT INTO codes
-        (code, role_id, max_uses, uses, expires_at, bound_user)
-        VALUES (?, ?, ?, 0, ?, ?)
+        (code, guild_id, role_id, max_uses, uses, expires_at, bound_user)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
         """, (
             code,
+            guild_id,
             role_id,
             max_uses,
             expires_at,
@@ -165,22 +175,13 @@ def index():
     # STATS
     # =========================
     cursor.execute("SELECT COUNT(*) FROM codes")
-    total_codes = cursor.fetchone()[0] or 0
+    total_codes = cursor.fetchone()[0]
 
     cursor.execute("SELECT SUM(uses) FROM codes")
     total_uses = cursor.fetchone()[0] or 0
 
-    # =========================
-    # ROLES
-    # =========================
-    cursor.execute("SELECT role_id, role_name FROM roles")
-    roles = cursor.fetchall()
-
-    # =========================
-    # CODES LIST
-    # =========================
     cursor.execute("""
-        SELECT code, role_id, max_uses, uses, expires_at
+        SELECT code, guild_id, role_id, uses
         FROM codes
         ORDER BY ROWID DESC
         LIMIT 20
@@ -191,11 +192,28 @@ def index():
 
     return render_template(
         "dashboard.html",
-        roles=roles,
+        guilds=filtered_guilds,
         total_codes=total_codes,
         total_uses=total_uses,
         codes=codes
     )
+
+# =========================
+# API ROLES
+# =========================
+@app.route("/api/roles/<guild_id>")
+def get_roles(guild_id):
+
+    headers = {
+        "Authorization": f"Bot {BOT_TOKEN}"
+    }
+
+    r = requests.get(
+        f"https://discord.com/api/guilds/{guild_id}/roles",
+        headers=headers
+    )
+
+    return jsonify(r.json())
 
 # =========================
 # RUN
