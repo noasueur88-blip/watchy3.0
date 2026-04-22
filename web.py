@@ -74,7 +74,7 @@ def callback():
     code = request.args.get("code")
 
     if not code:
-        return "❌ No code"
+    return redirect("/login")
 
     data = {
         "client_id": CLIENT_ID,
