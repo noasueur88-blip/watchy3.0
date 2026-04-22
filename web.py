@@ -9,22 +9,19 @@ app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
 # =========================
-# DISCORD CONFIG
+# CONFIG DISCORD
 # =========================
 CLIENT_ID = "1495598588406005911"
-CLIENT_SECRET = "TON_CLIENT_SECRET"
+CLIENT_SECRET = "TON_CLIENT_SECRET"  # ⚠️ mets le vrai
 REDIRECT_URI = "https://watchy3-0.onrender.com/callback"
 DISCORD_API = "https://discord.com/api"
 
-BOT_TOKEN = os.getenv("TOKEN")  # token bot
+BOT_TOKEN = os.getenv("TOKEN")
 
 ADMIN_IDS = [1018561026427474121]
 
-# ⚠️ remplace par les vrais serveurs où ton bot est
-BOT_GUILDS = []
-
 # =========================
-# DB
+# DATABASE
 # =========================
 def init_db():
     conn = sqlite3.connect("codes.db")
@@ -54,6 +51,13 @@ def generate_code():
     return secrets.token_hex(4).upper()
 
 # =========================
+# ROOT → redirect
+# =========================
+@app.route("/")
+def home():
+    return redirect("/dashboard")
+
+# =========================
 # LOGIN DISCORD
 # =========================
 @app.route("/login")
@@ -74,7 +78,7 @@ def callback():
     code = request.args.get("code")
 
     if not code:
-    return redirect("/login")
+        return redirect("/login")  # FIX "No code"
 
     data = {
         "client_id": CLIENT_ID,
@@ -96,7 +100,7 @@ def callback():
     if not access_token:
         return f"❌ Token error: {token_json}"
 
-    # USER
+    # ===== USER =====
     user = requests.get(
         DISCORD_API + "/users/@me",
         headers={"Authorization": f"Bearer {access_token}"}
@@ -105,7 +109,7 @@ def callback():
     if "id" not in user:
         return f"❌ User error: {user}"
 
-    # GUILDS
+    # ===== GUILDS =====
     guilds = requests.get(
         DISCORD_API + "/users/@me/guilds",
         headers={"Authorization": f"Bearer {access_token}"}
@@ -114,6 +118,7 @@ def callback():
     session["user"] = user
     session["guilds"] = guilds
 
+    # ADMIN CHECK
     if int(user["id"]) not in ADMIN_IDS:
         return "❌ Pas admin"
 
@@ -133,10 +138,10 @@ def dashboard():
 
     user_guilds = session.get("guilds", [])
 
-    # 🔥 filtrer serveurs où bot est présent + admin
+    # 🔥 Filtrer serveurs où user est ADMIN
     filtered_guilds = [
         g for g in user_guilds
-        if int(g["permissions"]) & 0x20  # admin
+        if (int(g["permissions"]) & 0x8) == 0x8  # ADMIN
     ]
 
     # =========================
@@ -199,7 +204,7 @@ def dashboard():
     )
 
 # =========================
-# API ROLES
+# API ROLES (BOT)
 # =========================
 @app.route("/api/roles/<guild_id>")
 def get_roles(guild_id):
